@@ -130,17 +130,3 @@ event.service.js (모든 모듈 통합)
 | **합계** | **21** | **모든 기능** |
 
 ---
-
-
-## 🧪 테스트 방법
-
-```bash
-# 전체 테스트
-npm test
-
-# 모듈별 테스트 (나중에 구현 가능)
-npm test -- tests/services/modules/crud.test.js
-npm test -- tests/services/modules/calendar.test.js
-npm test -- tests/services/modules/important.test.js
-npm test -- tests/services/modules/search.test.js
-```
