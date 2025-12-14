@@ -1,0 +1,102 @@
+﻿const request = require('supertest');
+const { expect } = require('chai');
+const app = require('../src/app');
+const { sequelize, Event } = require('../src/database');
+
+const basePayload = { // 테스트용 예시 이벤트 데이터
+  title: '주일 예배',
+  description: '매주 드리는 청년부 예배',
+  startDateTime: '2025-03-02T02:00:00.000Z',
+  endDateTime: '2025-03-02T03:00:00.000Z',
+  location: '대예배당',
+  category: '예배'
+};
+
+// 이벤트 생성/조회/수정/삭제와 필터링을 검증하는 테스트.
+// 통과 조건: 각 요청이 기대 상태코드(2xx/404/400)를 반환하고, 응답 필드가 저장·수정된 값과 일치해야 한다.
+
+describe('Events API', () => {
+  beforeEach(async () => {
+    await Event.destroy({ where: {} });
+  });
+
+  // 이벤트 생성 후 단건 조회가 성공하는지(POST 201, GET 200, 제목 일치)
+  it('creates an event (POST /events) and retrieves it (GET /events/:id)', async () => {
+    const createRes = await request(app).post('/events').send(basePayload);
+    console.log(`\nPOST /events ${createRes.status}`);
+    console.log(JSON.stringify(createRes.body, null, 2));
+    expect(createRes.status).to.equal(201);
+    const createdId = createRes.body.id;
+
+    const fetchRes = await request(app).get(`/events/${createdId}`);
+    console.log(`\nGET /events/${createdId} ${fetchRes.status}`);
+    console.log(JSON.stringify(fetchRes.body, null, 2));
+    expect(fetchRes.status).to.equal(200);
+    expect(fetchRes.body.title).to.equal(basePayload.title);
+  });
+
+  // 날짜/카테고리 필터가 적용된 목록 조회가 올바른지(200, 길이 1, 제목 확인)
+  it('lists events with date filtering (GET /events)', async () => {
+    await Event.bulkCreate([
+      basePayload,
+      {
+        title: '팀 주간 회의',
+        startDateTime: '2025-03-10T05:00:00.000Z',
+        endDateTime: '2025-03-10T06:00:00.000Z',
+        category: '회의'
+      }
+    ]);
+
+    const res = await request(app)
+      .get('/events')
+      .query({ startDate: '2025-03-01', endDate: '2025-03-31', category: '회의' });
+
+    console.log(`\nGET /events ${res.status}`);
+    console.log(JSON.stringify(res.body, null, 2));
+
+    expect(res.status).to.equal(200);
+    expect(res.body).to.have.length(1);
+    expect(res.body[0].title).to.equal('팀 주간 회의');
+  });
+
+  // 이벤트 수정이 성공하고 변경된 값이 반영되는지(PUT 200, 제목 변경 확인)
+  it('updates an event (PUT /events/:id)', async () => {
+    const { body } = await request(app).post('/events').send(basePayload);
+    const updateRes = await request(app)
+      .put(`/events/${body.id}`)
+      .send({ ...basePayload, title: '주일 예배 (시간 변경)' });
+
+    console.log(`\nPUT /events/${body.id} ${updateRes.status}`);
+    console.log(JSON.stringify(updateRes.body, null, 2));
+
+    expect(updateRes.status).to.equal(200);
+    expect(updateRes.body.title).to.equal('주일 예배 (시간 변경)');
+  });
+
+  // 이벤트 삭제 후 재조회 시 404를 반환하는지(DELETE 204, 이후 GET 404)
+  it('deletes an event (DELETE /events/:id) and returns 404 afterwards', async () => {
+    const { body } = await request(app).post('/events').send(basePayload);
+
+    const deleteRes = await request(app).delete(`/events/${body.id}`);
+    console.log(`\nDELETE /events/${body.id} ${deleteRes.status}`);
+    expect(deleteRes.status).to.equal(204);
+
+    const fetchRes = await request(app).get(`/events/${body.id}`);
+    console.log(`\nGET /events/${body.id} ${fetchRes.status}`);
+    console.log(JSON.stringify(fetchRes.body, null, 2));
+    expect(fetchRes.status).to.equal(404);
+  });
+
+  // 잘못된 페이로드를 거부하는지(POST 400, 오류 메시지에 title 포함)
+  it('rejects invalid payloads with 400 (POST /events)', async () => {
+    const res = await request(app)
+      .post('/events')
+      .send({ title: 'Invalid Event', startDateTime: null, endDateTime: null });
+
+    console.log(`\nPOST /events ${res.status}`);
+    console.log(JSON.stringify(res.body, null, 2));
+
+    expect(res.status).to.equal(400);
+    expect(res.body.message).to.include('title');
+  });
+});
